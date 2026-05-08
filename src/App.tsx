@@ -66,11 +66,11 @@ export default function App() {
           )
         );
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Chat error:", error);
       setMessages((prev) => 
         prev.map((msg) => 
-          msg.id === modelId ? { ...msg, text: "Error executing command. Please check system parameters and try again." } : msg
+          msg.id === modelId ? { ...msg, text: "Error: " + (error?.message || "Unknown error occurred") } : msg
         )
       );
     } finally {

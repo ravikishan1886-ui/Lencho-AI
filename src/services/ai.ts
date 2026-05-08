@@ -80,7 +80,7 @@ Act like a real AI operating assistant capable of handling communication, search
 
 export function createLenchoChat() {
   return ai.chats.create({
-    model: "gemini-3.1-pro-preview",
+    model: "gemini-3-flash-preview",
     config: {
       systemInstruction: SYSTEM_INSTRUCTION,
       temperature: 0.3,
