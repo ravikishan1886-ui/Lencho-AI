@@ -3,6 +3,7 @@ import { Send, Terminal, Loader2, Bot, User, Command, Volume2, VolumeX, Download
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { createLenchoChat } from "./services/ai";
+import { PERSONAS, PERSONA_COLORS } from "./constants";
 
 type ChatRole = "user" | "model";
 
@@ -53,78 +54,72 @@ const CodeBlock = ({ inline, className, children, ...props }: any) => {
   return <code className={`${className} bg-slate-200 text-slate-700 px-1.5 py-0.5 mx-0.5 rounded text-[0.9em] font-mono border border-slate-300`} {...props}>{children}</code>;
 };
 
-import { fal } from "@fal-ai/client";
 
-fal.config({
-  credentials: "9182cf92-31eb-4bca-96a7-8221ebaf7634:c19b3bcedf24eb7981e2dd5584217298"
-});
+import { GoogleGenAI } from "@google/genai";
 
-const FalVideoGenerator = ({ prompt }: { prompt: string }) => {
+const GeminiVideoGenerator = ({ prompt }: { prompt: string }) => {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [progress, setProgress] = useState("Initializing...");
+  const [hasKey, setHasKey] = useState<boolean>(false);
 
   useEffect(() => {
-    let isMounted = true;
-    const generateVideo = async () => {
-      if (!prompt) return;
-      setIsGenerating(true);
-      setError(null);
-      try {
-        const result: any = await fal.subscribe("fal-ai/minimax-video", {
-          input: {
-            prompt: prompt,
-          },
-          logs: true,
-          onQueueUpdate: (update) => {
-            if (isMounted) {
-              if (update.status === "IN_PROGRESS") {
-                setProgress("Generating video... This might take up to 2-3 minutes.");
-              }
-            }
-          }
-        });
-        if (isMounted && result.video?.url) {
-          setVideoUrl(result.video.url);
-        }
-      } catch (err: any) {
-        if (isMounted) setError(err.message || "Failed to generate video");
-      } finally {
-        if (isMounted) setIsGenerating(false);
-      }
+    const checkKey = async () => {
+        const canUseKey = await (window as any).aistudio.hasSelectedApiKey();
+        setHasKey(canUseKey);
     };
-    generateVideo();
-    return () => { isMounted = false; };
-  }, [prompt]);
+    checkKey();
+  }, []);
 
-  if (error) {
-    let displayError = error;
-    if (error.includes("Forbidden") || error.includes("403")) {
-      displayError = "FAL API Key is unauthorized or out of credits (Forbidden). Please check your fal.ai billing and API key.";
+  const generate = async () => {
+    if(!(window as any).aistudio.hasSelectedApiKey()) {
+        await (window as any).aistudio.openSelectKey();
+        setHasKey(true);
     }
-    return <div className="p-4 bg-rose-50 text-rose-600 rounded-lg text-sm border border-rose-200 shadow-sm mt-3 mb-3">Error generating video: {displayError}</div>;
-  }
-  if (videoUrl) {
-    return (
-      <div className="mt-3 mb-3 rounded-xl overflow-hidden border border-[#ffffff20] bg-slate-900 shadow-sm relative group">
-        <video src={videoUrl} controls className="w-full h-auto max-h-[400px] object-cover bg-black" autoPlay loop playsInline />
-        <a href={videoUrl} download="lencho_video.mp4" target="_blank" rel="noopener noreferrer" className="absolute top-4 right-4 p-2 bg-slate-900/60 hover:bg-slate-900/90 text-white rounded-lg opacity-0 group-hover:opacity-100 transition-all backdrop-blur-sm z-10 flex items-center gap-2 text-xs font-semibold">
-          <Download size={14} /> Download
-        </a>
-      </div>
-    );
-  }
-  if (isGenerating) {
-    return (
-      <div className="flex flex-col items-center justify-center p-8 bg-slate-800/5 rounded-xl border border-indigo-100 mt-3 mb-3 text-center shadow-inner">
-        <Loader2 size={32} className="text-indigo-500 animate-spin mb-3" />
-        <div className="text-sm font-semibold text-slate-800">{progress}</div>
-        <div className="text-xs text-slate-500 mt-1 max-w-xs leading-relaxed">"{prompt.substring(0, 100)}{prompt.length > 100 ? '...' : ''}"</div>
-      </div>
-    );
-  }
-  return null;
+    
+    setIsGenerating(true);
+    setError(null);
+    try {
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+        let operation = await ai.models.generateVideos({
+            model: 'veo-3.1-lite-generate-preview',
+            prompt: prompt,
+            config: {
+                numberOfVideos: 1,
+                resolution: '1080p',
+                aspectRatio: '16:9'
+            }
+        });
+
+        while (!operation.done) {
+            await new Promise(resolve => setTimeout(resolve, 10000));
+            operation = await ai.operations.getVideosOperation({operation: operation});
+        }
+
+        const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
+        
+        // Fetch to get authenticated download URL
+        const response = await fetch(downloadLink, {
+            method: 'GET',
+            headers: {
+              'x-goog-api-key': process.env.API_KEY || '',
+            },
+        });
+        const blob = await response.blob();
+        setVideoUrl(URL.createObjectURL(blob));
+
+    } catch (e: any) {
+        setError(e.message);
+    } finally {
+        setIsGenerating(false);
+    }
+  };
+
+  if(!hasKey) return <button onClick={async () => { await (window as any).aistudio.openSelectKey(); setHasKey(true); }} className="bg-indigo-600 text-white p-2 rounded text-sm">Select Gemini API Key</button>
+  if (error) return <div className="p-3 bg-rose-50 text-rose-600 rounded-lg text-sm border border-rose-200">Error: {error}</div>;
+  if (isGenerating) return <div className="p-3 bg-slate-100 rounded-lg text-slate-600 text-sm">Generating video...</div>;
+  if (videoUrl) return <video src={videoUrl} controls className="w-full h-auto rounded-lg" />;
+  return <button onClick={generate} className="bg-indigo-600 text-white p-2 rounded text-sm">Generate Video</button>;
 };
 
 export default function App() {
@@ -157,12 +152,14 @@ export default function App() {
   });
 
   const [currentProjectId, setCurrentProjectId] = useState<string>(projects[0]?.id || "");
+  const [persona, setPersona] = useState<keyof typeof PERSONAS>("lencho");
   const currentProject = projects.find(p => p.id === currentProjectId) || projects[0];
   const messages = currentProject?.messages || [];
   
   const [editingMsgId, setEditingMsgId] = useState<string | null>(null);
+  const personaColor = (PERSONA_COLORS as any)[persona] || "indigo";
   const [editInput, setEditInput] = useState("");
-
+  
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(false);
@@ -179,7 +176,7 @@ export default function App() {
         role: m.role === "user" ? "user" : "model",
         parts: [{ text: m.text }],
       }));
-    return createLenchoChat(historyForModel.length > 0 ? historyForModel : undefined);
+    return createLenchoChat(historyForModel.length > 0 ? historyForModel : undefined, persona);
   };
 
   const chatSession = useRef<any>(null);
@@ -351,6 +348,29 @@ export default function App() {
     await processCommand(input);
   };
 
+  const playChime = (type: 'start' | 'success') => {
+    const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const oscillator = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+    oscillator.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    oscillator.type = 'sine';
+    if (type === 'start') {
+      oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // A5
+      gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+      oscillator.start();
+      oscillator.stop(audioCtx.currentTime + 0.1);
+    } else {
+      oscillator.frequency.setValueAtTime(660, audioCtx.currentTime); // E5
+      gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+      oscillator.start(audioCtx.currentTime + 0.1);
+      oscillator.frequency.exponentialRampToValueAtTime(880, audioCtx.currentTime + 0.2);
+      oscillator.stop(audioCtx.currentTime + 0.2);
+    }
+  };
+
   const toggleListening = () => {
     if (isListening && recognitionRef.current) {
       recognitionRef.current.stop();
@@ -371,10 +391,12 @@ export default function App() {
 
     recognition.onstart = () => {
       setIsListening(true);
+      playChime('start');
       if (!voiceEnabled) setVoiceEnabled(true);
     };
 
     recognition.onresult = (event: any) => {
+      playChime('success');
       const transcript = event.results[0][0].transcript;
       processCommand(transcript);
     };
@@ -420,6 +442,18 @@ export default function App() {
                 </li>
              ))}
           </ul>
+          <div className="mt-8 px-4 pt-4 border-t border-slate-800">
+            <h2 className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest mb-2">Persona</h2>
+            <select
+              value={persona}
+              onChange={(e) => setPersona(e.target.value as keyof typeof PERSONAS)}
+              className="w-full bg-slate-800 text-slate-200 text-sm rounded-lg p-2 border border-slate-700"
+            >
+              {Object.keys(PERSONAS).map((p) => (
+                <option key={p} value={p}>{p.replace('_', ' ').toUpperCase()}</option>
+              ))}
+            </select>
+          </div>
         </div>
         <div className="p-6 mt-auto">
           <div className="bg-slate-800 rounded-lg p-3 text-xs">
@@ -522,11 +556,11 @@ export default function App() {
                             <div className="w-1.5 h-1.5 bg-white/70 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
                           </div>
                         ) : (
-                          message.text.split(/(<FAL_VIDEO\s+prompt="[^"]*"\s*\/>)/g).map((part, i) => {
-                            if (part.startsWith('<FAL_VIDEO')) {
+                          message.text.split(/(<GEMINI_VIDEO\s+prompt="[^"]*"\s*\/>)/g).map((part, i) => {
+                            if (part.startsWith('<GEMINI_VIDEO')) {
                               const promptMatch = part.match(/prompt="([^"]*)"/);
                               if (promptMatch) {
-                                return <FalVideoGenerator key={i} prompt={promptMatch[1]} />;
+                                return <GeminiVideoGenerator key={i} prompt={promptMatch[1]} />;
                               }
                             }
                             return (
