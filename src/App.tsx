@@ -122,6 +122,39 @@ const GeminiVideoGenerator = ({ prompt }: { prompt: string }) => {
   return <button onClick={generate} className="bg-indigo-600 text-white p-2 rounded text-sm">Generate Video</button>;
 };
 
+const GeminiImageGenerator = ({ prompt, personaStyle }: { prompt: string, personaStyle: any }) => {
+  const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?nologo=true&seed=${Math.floor(Math.random() * 1000)}`;
+  
+  const [downloading, setDownloading] = useState(false);
+
+  const downloadImage = async () => {
+    setDownloading(true);
+    try {
+        const response = await fetch(imageUrl);
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `image-${Date.now()}.png`;
+        a.click();
+        URL.revokeObjectURL(url);
+    } catch (e) {
+        console.error("Failed to download image", e);
+    } finally {
+        setDownloading(false);
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+        <img src={imageUrl} alt={prompt} className="w-full h-auto rounded-lg" />
+        <button onClick={downloadImage} className={`px-3 py-1 ${personaStyle.bg} text-white rounded text-xs`}>
+            {downloading ? 'Downloading...' : 'Download Image'}
+        </button>
+    </div>
+  );
+};
+
 export default function App() {
   const [projects, setProjects] = useState<Project[]>(() => {
     try {
@@ -151,13 +184,13 @@ export default function App() {
     }];
   });
 
-  const [currentProjectId, setCurrentProjectId] = useState<string>(projects[0]?.id || "");
   const [persona, setPersona] = useState<keyof typeof PERSONAS>("lencho");
+  const [currentProjectId, setCurrentProjectId] = useState<string>(projects[0]?.id || "");
   const currentProject = projects.find(p => p.id === currentProjectId) || projects[0];
   const messages = currentProject?.messages || [];
   
   const [editingMsgId, setEditingMsgId] = useState<string | null>(null);
-  const personaColor = (PERSONA_COLORS as any)[persona] || "indigo";
+  const personaStyle = PERSONA_COLORS[persona] || PERSONA_COLORS.lencho;
   const [editInput, setEditInput] = useState("");
   
   const [input, setInput] = useState("");
@@ -418,7 +451,7 @@ export default function App() {
       {/* Sidebar */}
       <aside className="w-[260px] bg-slate-900 text-slate-400 hidden md:flex flex-col shrink-0">
         <div className="h-16 px-6 border-b border-slate-800/50 flex items-center gap-3 shrink-0">
-          <div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center text-white font-bold">
+          <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold ${personaStyle.bg}`}>
             L
           </div>
           <div>
@@ -510,7 +543,7 @@ export default function App() {
                 <div key={message.id} className={`flex gap-4 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   {/* Model Avatar */}
                   {message.role === 'model' && (
-                    <div className="w-9 h-9 rounded-full bg-indigo-500 flex items-center justify-center shrink-0 mt-0.5 shadow-sm text-white font-bold text-sm">
+                    <div className={`w-9 h-9 rounded-full ${personaStyle.bg} flex items-center justify-center shrink-0 mt-0.5 shadow-sm text-white font-bold text-sm`}>
                       L
                     </div>
                   )}
@@ -519,7 +552,7 @@ export default function App() {
                   <div className={`max-w-[85%] px-5 py-3.5 border text-[14px] leading-relaxed shadow-sm relative group ${
                     message.role === 'user' 
                       ? 'bg-slate-100 border-slate-200 text-slate-800 rounded-2xl rounded-br-sm' 
-                      : 'bg-indigo-500 border-indigo-500 text-white rounded-2xl rounded-bl-sm'
+                      : `${personaStyle.bg} ${personaStyle.border} text-white rounded-2xl rounded-bl-sm`
                   }`}>
                     {message.role === 'user' ? (
                       editingMsgId === message.id ? (
@@ -556,11 +589,17 @@ export default function App() {
                             <div className="w-1.5 h-1.5 bg-white/70 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
                           </div>
                         ) : (
-                          message.text.split(/(<GEMINI_VIDEO\s+prompt="[^"]*"\s*\/>)/g).map((part, i) => {
+                          message.text.split(/(<GEMINI_VIDEO\s+prompt="[^"]*"\s*\/>|<GEMINI_IMAGE\s+prompt="[^"]*"\s*\/>)/g).map((part, i) => {
                             if (part.startsWith('<GEMINI_VIDEO')) {
                               const promptMatch = part.match(/prompt="([^"]*)"/);
                               if (promptMatch) {
                                 return <GeminiVideoGenerator key={i} prompt={promptMatch[1]} />;
+                              }
+                            }
+                            if (part.startsWith('<GEMINI_IMAGE')) {
+                              const promptMatch = part.match(/prompt="([^"]*)"/);
+                              if (promptMatch) {
+                                return <GeminiImageGenerator key={i} prompt={promptMatch[1]} personaStyle={personaStyle} />;
                               }
                             }
                             return (
@@ -669,7 +708,7 @@ export default function App() {
                 <button
                   type="submit"
                   disabled={!input.trim() || isTyping}
-                  className="p-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg transition-colors disabled:opacity-50 disabled:bg-slate-300 disabled:text-slate-500 disabled:cursor-not-allowed shadow-sm"
+                  className={`p-2 ${personaStyle.bg} hover:opacity-90 text-white rounded-lg transition-colors disabled:opacity-50 disabled:bg-slate-300 disabled:text-slate-500 disabled:cursor-not-allowed shadow-sm`}
                 >
                   {isTyping ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
                 </button>
