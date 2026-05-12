@@ -58,68 +58,21 @@ const CodeBlock = ({ inline, className, children, ...props }: any) => {
 import { GoogleGenAI } from "@google/genai";
 
 const GeminiVideoGenerator = ({ prompt }: { prompt: string }) => {
-  const [videoUrl, setVideoUrl] = useState<string | null>(null);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [hasKey, setHasKey] = useState<boolean>(false);
-
-  useEffect(() => {
-    const checkKey = async () => {
-        const canUseKey = await (window as any).aistudio.hasSelectedApiKey();
-        setHasKey(canUseKey);
-    };
-    checkKey();
-  }, []);
-
-  const generate = async () => {
-    if(!(window as any).aistudio.hasSelectedApiKey()) {
-        await (window as any).aistudio.openSelectKey();
-        setHasKey(true);
-    }
-    
-    setIsGenerating(true);
-    setError(null);
-    try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
-        let operation = await ai.models.generateVideos({
-            model: 'veo-3.1-lite-generate-preview',
-            prompt: prompt,
-            config: {
-                numberOfVideos: 1,
-                resolution: '1080p',
-                aspectRatio: '16:9'
-            }
-        });
-
-        while (!operation.done) {
-            await new Promise(resolve => setTimeout(resolve, 10000));
-            operation = await ai.operations.getVideosOperation({operation: operation});
-        }
-
-        const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
-        
-        // Fetch to get authenticated download URL
-        const response = await fetch(downloadLink, {
-            method: 'GET',
-            headers: {
-              'x-goog-api-key': process.env.API_KEY || '',
-            },
-        });
-        const blob = await response.blob();
-        setVideoUrl(URL.createObjectURL(blob));
-
-    } catch (e: any) {
-        setError(e.message);
-    } finally {
-        setIsGenerating(false);
-    }
-  };
-
-  if(!hasKey) return <button onClick={async () => { await (window as any).aistudio.openSelectKey(); setHasKey(true); }} className="bg-indigo-600 text-white p-2 rounded text-sm">Select Gemini API Key</button>
-  if (error) return <div className="p-3 bg-rose-50 text-rose-600 rounded-lg text-sm border border-rose-200">Error: {error}</div>;
-  if (isGenerating) return <div className="p-3 bg-slate-100 rounded-lg text-slate-600 text-sm">Generating video...</div>;
-  if (videoUrl) return <video src={videoUrl} controls className="w-full h-auto rounded-lg" />;
-  return <button onClick={generate} className="bg-indigo-600 text-white p-2 rounded text-sm">Generate Video</button>;
+  return (
+    <div className="p-4 bg-slate-800 border border-slate-700 rounded-lg text-slate-300">
+      <div className="flex items-center gap-2 mb-2">
+        <Loader2 size={16} className="animate-spin text-indigo-400" />
+        <span className="text-sm font-medium">Video Generation (Beta)</span>
+      </div>
+      <p className="text-xs text-slate-400 mb-3">
+        Video generation for "{prompt}" is currently being processed by our laboratory models.
+        This feature is in limited preview.
+      </p>
+      <div className="h-24 bg-slate-900/50 rounded flex items-center justify-center border border-dashed border-slate-700">
+        <p className="text-[10px] uppercase tracking-widest text-slate-600">Processing queued...</p>
+      </div>
+    </div>
+  );
 };
 
 const GeminiImageGenerator = ({ prompt, personaStyle }: { prompt: string, personaStyle: any }) => {
@@ -130,14 +83,14 @@ const GeminiImageGenerator = ({ prompt, personaStyle }: { prompt: string, person
   const downloadImage = async () => {
     setDownloading(true);
     try {
-        const response = await fetch(imageUrl);
-        const blob = await response.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `image-${Date.now()}.png`;
-        a.click();
-        URL.revokeObjectURL(url);
+        // Try simple download first
+        const link = document.createElement('a');
+        link.href = imageUrl;
+        link.target = "_blank";
+        link.download = `image-${Date.now()}.png`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
     } catch (e) {
         console.error("Failed to download image", e);
     } finally {
@@ -146,10 +99,19 @@ const GeminiImageGenerator = ({ prompt, personaStyle }: { prompt: string, person
   }
 
   return (
-    <div className="space-y-2">
-        <img src={imageUrl} alt={prompt} className="w-full h-auto rounded-lg" />
-        <button onClick={downloadImage} className={`px-3 py-1 ${personaStyle.bg} text-white rounded text-xs`}>
-            {downloading ? 'Downloading...' : 'Download Image'}
+    <div className="space-y-2 mt-4">
+        <div className="relative group">
+          <img src={imageUrl} alt={prompt} className="w-full h-auto rounded-xl shadow-lg border border-white/10" />
+          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-xl">
+             <p className="text-white text-xs font-medium px-3 text-center">{prompt}</p>
+          </div>
+        </div>
+        <button 
+          onClick={downloadImage} 
+          className={`flex items-center gap-2 px-4 py-2 ${personaStyle.bg} hover:opacity-90 text-white rounded-lg text-xs font-semibold shadow-md transition-all active:scale-95`}
+        >
+            <Download size={14} />
+            {downloading ? 'Processing...' : 'Download High-Res'}
         </button>
     </div>
   );

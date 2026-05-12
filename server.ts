@@ -2,12 +2,18 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import "dotenv/config";
+import { GoogleGenAI } from "@google/genai";
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
   app.use(express.json());
+
+  const ai = new GoogleGenAI({ 
+    apiKey: process.env.GEMINI_API_KEY || "",
+    apiVersion: "v1alpha" 
+  });
 
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
@@ -17,62 +23,49 @@ async function startServer() {
     try {
       const { message, history, systemInstruction } = req.body;
       
-      // Convert history to OpenAI format
-      const messages = [
-        { role: "system", content: systemInstruction },
+      const contents = [
         ...(history || []).map((msg: any) => ({
-          role: msg.role === "user" ? "user" : "assistant",
-          content: msg.parts[0].text
+          role: msg.role === "user" ? "user" : "model",
+          parts: msg.parts
         })),
-        { role: "user", content: message }
+        { role: "user", parts: [{ text: message }] }
       ];
 
-      const apiKey = process.env.GROQ_API_KEY || process.env.FREE_AI_API_KEY;
-      const baseURL = process.env.GROQ_API_KEY ? "https://api.groq.com/openai/v1/chat/completions" 
-        : "https://free.churchless.tech/v1/chat/completions"; // Fallback URL or OpenAI free provider if needed
-      
-      const model = process.env.GROQ_API_KEY ? "llama-3.3-70b-versatile" : "gpt-3.5-turbo";
-
-      const response = await fetch(baseURL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model,
-          messages,
-          temperature: 0.3,
-          stream: true
-        })
+      const result = await ai.models.generateContentStream({
+        model: "gemini-2.0-flash-exp",
+        systemInstruction: systemInstruction,
+        contents: contents,
       });
 
-      if (!response.ok) {
-        throw new Error(`API error: ${response.status} ${response.statusText}`);
-      }
-
-      // Stream the response back to client
       res.setHeader("Content-Type", "text/event-stream");
       res.setHeader("Cache-Control", "no-cache");
       res.setHeader("Connection", "keep-alive");
 
-      if (response.body) {
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder("utf-8");
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          const chunk = decoder.decode(value, { stream: true });
-          res.write(chunk);
+      for await (const chunk of result.stream) {
+        const text = chunk.text();
+        if (text) {
+          // Format as OpenAI-like SSE for the frontend to consume easily if it expects it
+          // OR just send it as raw data. 
+          // Looking at src/services/ai.ts, it expects data: {"choices": [{"delta": {"content": "..."}}]}
+          const sseData = {
+            choices: [
+              {
+                delta: {
+                  content: text
+                }
+              }
+            ]
+          };
+          res.write(`data: ${JSON.stringify(sseData)}\n\n`);
         }
       }
+      res.write("data: [DONE]\n\n");
       res.end();
 
     } catch (err: any) {
       console.error("Chat error:", err);
-      // Only send headers if they haven't been sent yet
       if (!res.headersSent) {
-        res.status(500).json({ error: err.message || "Failed to communicate with AI" });
+        res.status(500).json({ error: err.message || "Failed to communicate with Gemini" });
       } else {
         res.end();
       }
